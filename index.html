@@ -1,0 +1,51 @@
+<button id="openCamera">Відкрити камеру</button>
+<video id="camera" autoplay playsinline style="width:100%; display:none;"></video>
+<div id="mirror" style="position:absolute; border:2px solid #fff; width:150px; height:150px; display:none;"></div>
+
+
+<script>const button = document.getElementById('openCamera');
+const video = document.getElementById('camera');
+const mirror = document.getElementById('mirror');
+
+button.addEventListener('click', async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = stream;
+    video.style.display = 'block';
+    mirror.style.display = 'block';
+  } catch (err) {
+    console.error('Camera access denied', err);
+  }
+});
+
+mirror.style.position = 'absolute';
+mirror.style.top = '50px';
+mirror.style.left = '50px';
+mirror.style.border = '2px solid silver';
+mirror.style.width = '200px';
+mirror.style.height = '200px';
+mirror.style.cursor = 'move';
+
+/* Drag logic */
+let isDragging = false;
+let offsetX, offsetY;
+
+mirror.addEventListener('mousedown', e => {
+  isDragging = true;
+  offsetX = e.offsetX;
+  offsetY = e.offsetY;
+});
+
+document.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  mirror.style.left = `${e.clientX - offsetX}px`;
+  mirror.style.top = `${e.clientY - offsetY}px`;
+});
+
+document.addEventListener('mouseup', () => {
+  isDragging = false;
+});
+
+</script>
+
+
