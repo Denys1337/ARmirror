@@ -1,6 +1,6 @@
 <button id="openCamera">Відкрити камеру</button>
 <video id="camera" autoplay playsinline style="width:100%; display:none;"></video>
-<div id="mirror" style="position:absolute; border:2px solid #fff; width:150px; height:150px; display:none;"></div>
+<div id="mirror" style="position:absolute; border:2px solid #fff; width:150px; height:150px; display:none;background: #fff; margin: 0 auto; top: 50%;" ></div>
 
 
 <script>const button = document.getElementById('openCamera');
@@ -9,7 +9,9 @@ const mirror = document.getElementById('mirror');
 
 button.addEventListener('click', async () => {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      video: { facingMode: { exact: "environment" } }
+    });
     video.srcObject = stream;
     video.style.display = 'block';
     mirror.style.display = 'block';
