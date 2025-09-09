@@ -513,5 +513,62 @@
         }
       });
     </script>
+    <video
+      id="cameraMirror"
+      autoplay
+      playsinline
+      muted
+      style="display: none; width: 100%; height: 100%; object-fit: cover"
+    ></video>
+    <button id="enterAR" class="btn">Запустити AR</button>
+
+    <script type="module">
+      async function supportsWebXR() {
+        if (!("xr" in navigator)) return false;
+        try {
+          return await navigator.xr.isSessionSupported("immersive-ar");
+        } catch {
+          return false;
+        }
+      }
+
+      // --- Запуск WebXR ---
+      async function startWebXR() {
+        alert("Тут працюватиме твій WebXR код для Android + Chrome");
+        // Твій попередній код з three.js
+      }
+
+      // --- Fallback: задня камера ---
+      async function startCameraFallback() {
+        const video = document.getElementById("cameraMirror");
+        video.style.display = "block";
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { exact: "environment" } },
+          });
+          video.srcObject = stream;
+        } catch (err) {
+          alert("Не вдалося відкрити камеру: " + err.message);
+        }
+      }
+
+      // --- iOS Quick Look (опціонально) ---
+      function openQuickLook() {
+        window.location.href = "mirror.usdz";
+        // Safari відкриє AR Quick Look, якщо файл існує
+      }
+
+      document.getElementById("enterAR").addEventListener("click", async () => {
+        if (await supportsWebXR()) {
+          startWebXR();
+        } else if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+          // iOS Safari fallback
+          startCameraFallback();
+          // або: openQuickLook();
+        } else {
+          startCameraFallback(); // fallback для інших
+        }
+      });
+    </script>
   </body>
 </html>
