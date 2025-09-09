@@ -1,574 +1,95 @@
-<!DOCTYPE html>
-<html lang="uk">
-  <head>
-    <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover"
-    />
-    <title>AR Дзеркало — прикріплення до стіни (WebXR)</title>
-    <style>
-      html,
-      body {
-        height: 100%;
-        margin: 0;
-        background: #000;
-      }
-      #overlayUI {
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        padding: env(safe-area-inset-top) 12px env(safe-area-inset-bottom) 12px;
-      }
-      .topbar,
-      .bottombar {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-      }
-      .topbar {
-        justify-content: space-between;
-      }
-      .bottombar {
-        justify-content: center;
-        margin-bottom: 8px;
-      }
-      .card {
-        pointer-events: auto;
-        background: rgba(22, 22, 22, 0.6);
-        backdrop-filter: blur(8px);
-        color: #fff;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 16px;
-        padding: 10px 12px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-      }
-      .btn {
-        pointer-events: auto;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        border-radius: 999px;
-        padding: 10px 14px;
-        background: rgba(255, 255, 255, 0.08);
-        color: #fff;
-        font: 500 14px/1 system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
-          Arial;
-      }
-      .btn:hover {
-        background: rgba(255, 255, 255, 0.14);
-      }
-      .hint {
-        font-size: 13px;
-        opacity: 0.85;
-      }
+<!-- Кнопка -->
+<button id="enterAR">Відкрити дзеркало</button>
 
-      /* Reticle (точка прилипання) */
-      .crosshair {
-        position: fixed;
-        left: 50%;
-        top: 50%;
-        width: 20px;
-        height: 20px;
-        margin: -10px 0 0 -10px;
-        pointer-events: none;
-      }
-      .crosshair::before,
-      .crosshair::after {
-        content: "";
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        background: #fff;
-      }
-      .crosshair::before {
-        width: 16px;
-        height: 2px;
-        transform: translate(-50%, -50%);
-        opacity: 0.75;
-      }
-      .crosshair::after {
-        width: 2px;
-        height: 16px;
-        transform: translate(-50%, -50%);
-        opacity: 0.75;
-      }
+<!-- Відео для fallback (імітація дзеркала, якщо AR недоступне) -->
+<video
+  id="mirror"
+  autoplay
+  playsinline
+  muted
+  style="display: none; width: 100%; height: 100%; object-fit: cover"
+></video>
 
-      #enterAR {
-        position: fixed;
-        left: 50%;
-        bottom: 28px;
-        transform: translateX(-50%);
-        z-index: 10;
-      }
+<script type="module">
+  import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js";
 
-      /* Helper for unsupported */
-      #unsupported {
-        position: fixed;
-        inset: 0;
-        display: none;
-        place-items: center;
-        background: #0b0b0b;
-        color: #fff;
-        padding: 20px;
-        text-align: center;
-      }
-      #unsupported.show {
-        display: grid;
-      }
-    </style>
-  </head>
-  <body>
-    <!-- DOM Overlay for WebXR -->
-    <div id="overlayUI" class="overlay" hidden>
-      <div class="topbar">
-        <div class="card hint">
-          Наведіть камеру на вертикальну поверхню та торкніться, щоб приклеїти
-          дзеркало. Щипок — масштаб, два пальці — обертання.
-        </div>
-        <div class="card" style="display: flex; gap: 8px; align-items: center">
-          <button id="resetBtn" class="btn" title="Скинути дзеркало">
-            Скинути
-          </button>
-          <button
-            id="lockBtn"
-            class="btn"
-            title="Зафіксувати/розблокувати трансформації"
-          >
-            🔒 Блок
-          </button>
-        </div>
-      </div>
-      <div class="bottombar">
-        <div class="card hint">
-          Порада: рухайтеся повільно, щоб система краще розпізнала стіну.
-        </div>
-      </div>
-    </div>
+  async function supportsWebXR() {
+    if (!("xr" in navigator)) return false;
+    try {
+      return await navigator.xr.isSessionSupported("immersive-ar");
+    } catch {
+      return false;
+    }
+  }
 
-    <button id="enterAR" class="btn">Запустити AR</button>
-    <div id="unsupported" class="card">
-      <div>
-        <h2>Ваш браузер не підтримує WebXR AR</h2>
-        <p>
-          Спробуйте Chrome/Edge на Android з увімкненим WebXR або iOS Safari 17+
-          з WebXR Viewer. Сайт має бути на HTTPS.
-        </p>
-      </div>
-    </div>
-    <div class="crosshair" aria-hidden="true"></div>
+  // --- Запуск WebXR (Android + Chrome) ---
+  async function startWebXR() {
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true;
+    document.body.appendChild(renderer.domElement);
 
-    <script type="module">
-      // --- Імпорти Three.js (ESM з CDN) ---
-      import * as THREE from "https://unpkg.com/three@0.161.0/build/three.module.js";
-      import { XRControllerModelFactory } from "https://unpkg.com/three@0.161.0/examples/jsm/webxr/XRControllerModelFactory.js";
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(
+      70,
+      window.innerWidth / window.innerHeight,
+      0.01,
+      20
+    );
 
-      // Глобальні змінні
-      let renderer,
-        scene,
-        camera,
-        xrSession,
-        refSpace,
-        viewerSpace,
-        hitTestSource;
-      let mirrorGroup = null; // Група дзеркала (рамка + полотно)
-      let anchor = null; // Якір AR (за наявності підтримки)
-      let canTransform = true; // Чи дозволено жести
+    // cube (твоє "дзеркало")
+    const geometry = new THREE.BoxGeometry(0.5, 1, 0.05);
+    const material = new THREE.MeshBasicMaterial({ color: 0xaaaaaa });
+    const mirror = new THREE.Mesh(geometry, material);
+    mirror.position.set(0, 1.5, -2); // перед камерою
+    scene.add(mirror);
 
-      const overlayRoot = document.getElementById("overlayUI");
-      const enterBtn = document.getElementById("enterAR");
-      const unsupported = document.getElementById("unsupported");
-      const resetBtn = document.getElementById("resetBtn");
-      const lockBtn = document.getElementById("lockBtn");
-
-      // Перевірка підтримки WebXR
-      async function supportsAR() {
-        if (!("xr" in navigator)) return false;
-        try {
-          return await navigator.xr.isSessionSupported("immersive-ar");
-        } catch {
-          return false;
-        }
-      }
-
-      // Створення сцени
-      function initThree() {
-        scene = new THREE.Scene();
-        camera = new THREE.PerspectiveCamera();
-
-        renderer = new THREE.WebGLRenderer({
-          antialias: true,
-          alpha: true,
-          powerPreference: "high-performance",
-        });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.xr.enabled = true;
-        document.body.appendChild(renderer.domElement);
-
-        // М'яке освітлення для кращої якості рамки
-        const ambient = new THREE.AmbientLight(0xffffff, 0.9);
-        scene.add(ambient);
-        const dir = new THREE.DirectionalLight(0xffffff, 0.4);
-        dir.position.set(0.5, 1, 0.2);
-        scene.add(dir);
-      }
-
-      // Створення "дзеркала": тонка площина + елегантна рамка
-      function createMirrorMesh(width = 0.6, height = 1.0, depth = 0.02) {
-        const group = new THREE.Group();
-
-        // Полотно (скло): напівпрозорий, з легким відблиском
-        const glassGeo = new THREE.PlaneGeometry(width, height);
-        const glassMat = new THREE.MeshPhysicalMaterial({
-          color: 0xffffff,
-          metalness: 0.0,
-          roughness: 0.05,
-          transmission: 0.85, // скляність
-          thickness: 0.02,
-          transparent: true,
-          opacity: 0.95,
-          clearcoat: 1.0,
-          clearcoatRoughness: 0.05,
-        });
-        const glass = new THREE.Mesh(glassGeo, glassMat);
-        glass.renderOrder = 1;
-
-        // Рамка (витончена алюмінієва)
-        const frameThickness = 0.02;
-        const frameDepth = depth;
-        const outer = new THREE.BoxGeometry(
-          width + frameThickness * 2,
-          height + frameThickness * 2,
-          frameDepth
-        );
-        const inner = new THREE.BoxGeometry(width, height, frameDepth + 0.001);
-        // Побудова рамки як різниця — через Stencil не підемо, зробимо 4 рейки
-        const railMat = new THREE.MeshStandardMaterial({
-          color: 0xbfc7d5,
-          metalness: 0.8,
-          roughness: 0.2,
-        });
-        const rails = new THREE.Group();
-        const railW = frameThickness,
-          railH = height + frameThickness * 2,
-          railL = width + frameThickness * 2;
-        const railGeoV = new THREE.BoxGeometry(railW, railH, frameDepth);
-        const railGeoH = new THREE.BoxGeometry(railL, railW, frameDepth);
-        const left = new THREE.Mesh(railGeoV, railMat);
-        left.position.set(-(width / 2 + frameThickness / 2), 0, 0);
-        const right = left.clone();
-        right.position.x *= -1;
-        const top = new THREE.Mesh(railGeoH, railMat);
-        top.position.set(0, height / 2 + frameThickness / 2, 0);
-        const bottom = top.clone();
-        bottom.position.y *= -1;
-        rails.add(left, right, top, bottom);
-
-        // Тіньова підкладка (для контрасту на світлих стінах)
-        const shadowBack = new THREE.Mesh(
-          new THREE.PlaneGeometry(
-            width + frameThickness * 2.2,
-            height + frameThickness * 2.2
-          ),
-          new THREE.MeshBasicMaterial({
-            color: 0x000000,
-            transparent: true,
-            opacity: 0.08,
-          })
-        );
-        shadowBack.position.z = -0.005;
-
-        group.add(shadowBack, rails, glass);
-        group.userData = { width, height };
-        return group;
-      }
-
-      // Ініціалізація AR-сесії
-      async function startAR() {
-        if (!renderer) initThree();
-
-        // Запит AR-сесії з потрібними фічами
-        xrSession = await navigator.xr.requestSession("immersive-ar", {
-          requiredFeatures: ["hit-test", "dom-overlay"],
-          optionalFeatures: ["anchors", "plane-detection"],
-          domOverlay: { root: document.body },
-        });
-
-        renderer.xr.setReferenceSpaceType("local");
-        await renderer.xr.setSession(xrSession);
-
-        refSpace = await xrSession.requestReferenceSpace("local");
-        viewerSpace = await xrSession.requestReferenceSpace("viewer");
-
-        // Джерело hit-test (від глядача)
-        hitTestSource = await xrSession.requestHitTestSource({
-          space: viewerSpace,
-        });
-
-        // Показати UI поверх AR
-        overlayRoot.hidden = false;
-        enterBtn.style.display = "none";
-
-        // Контролери для обробки тапа
-        const controller = renderer.xr.getController(0);
-        controller.addEventListener("select", onSelectPlaceOrAnchor);
-        scene.add(controller);
-
-        // Жести масштаб/обертання через touch-події DOM overlay
-        initGestureControls();
-
-        // Анімаційний цикл
-        renderer.setAnimationLoop(onXRFrame);
-
-        // Створюємо дзеркало заздалегідь (буде переміщуватися за reticle до моменту приклеювання)
-        mirrorGroup = createMirrorMesh();
-        mirrorGroup.visible = false; // стане видимим, коли знайдемо площину
-        scene.add(mirrorGroup);
-      }
-
-      // Обробка кожного XR кадру
-      function onXRFrame(t, frame) {
-        const session = frame.session;
-        const pose = frame.getViewerPose(refSpace);
-        if (!pose) return;
-
-        // Hit test — знаходимо площину (у т.ч. вертикальну стіну)
-        const results = frame.getHitTestResults(hitTestSource);
-        if (results.length > 0) {
-          const hit = results[0];
-          const hitPose = hit.getPose(refSpace);
-
-          // Орієнтація площини: прагнемо вертикалі (стіні)
-          // Для візуальної стабільності трохи згладимо рух
-          if (mirrorGroup && anchor === null) {
-            mirrorGroup.visible = true;
-            // Позиція перед камерою (з hit-test)
-            mirrorGroup.position.set(
-              hitPose.transform.position.x,
-              hitPose.transform.position.y,
-              hitPose.transform.position.z
-            );
-
-            // Орієнтуємо площину, щоб вона дивилася на камеру (тобто стала паралельно стіні)
-            const q = hitPose.transform.orientation;
-            mirrorGroup.quaternion.set(q.x, q.y, q.z, q.w);
-          }
-        }
-
+    function animate() {
+      renderer.setAnimationLoop(() => {
         renderer.render(scene, camera);
-      }
-
-      // По тапу: або закріплюємо (anchor), або перемикаємо положення
-      async function onSelectPlaceOrAnchor(event) {
-        if (!mirrorGroup) return;
-
-        const xrFrame = renderer.xr.getFrame();
-        if (!xrFrame) return;
-
-        const results = xrFrame.getHitTestResults(hitTestSource);
-        if (results.length === 0) return;
-
-        const hit = results[0];
-        const pose = hit.getPose(refSpace);
-
-        // Якщо підтримуються якорі — прив'язуємо, щоб дзеркало "прилипло" до стіни стабільно
-        try {
-          if (xrFrame.createAnchor) {
-            if (anchor) {
-              anchor.delete();
-              anchor = null;
-            }
-            anchor = await xrFrame.createAnchor(pose.transform, refSpace);
-            anchor.addEventListener("remove", () => {
-              anchor = null;
-            });
-            // Прив'язуємо трансформацію дзеркала до якоря
-            const anchorSpace = anchor.anchorSpace;
-            // Оновлюємо позу дзеркала кожного кадру через anchorSpace
-            const prevLoop = renderer.getAnimationLoop();
-            renderer.setAnimationLoop((t, frame) => {
-              const anchorPose = frame.getPose(anchorSpace, refSpace);
-              if (anchorPose) {
-                mirrorGroup.position.set(
-                  anchorPose.transform.position.x,
-                  anchorPose.transform.position.y,
-                  anchorPose.transform.position.z
-                );
-                const o = anchorPose.transform.orientation;
-                mirrorGroup.quaternion.set(o.x, o.y, o.z, o.w);
-              }
-              prevLoop && prevLoop(t, frame);
-            });
-          } else {
-            // Фолбек: просто фіксуємо поточну позу без anchor
-            mirrorGroup.position.set(
-              pose.transform.position.x,
-              pose.transform.position.y,
-              pose.transform.position.z
-            );
-            const o = pose.transform.orientation;
-            mirrorGroup.quaternion.set(o.x, o.y, o.z, o.w);
-          }
-        } catch (e) {
-          console.warn("Anchor not available:", e);
-        }
-      }
-
-      // Жести масштабу/обертання (2 пальці)
-      function initGestureControls() {
-        let prevDist = 0,
-          prevAngle = 0;
-        let active = false;
-
-        function getTouches(e) {
-          return [...e.touches]
-            .slice(0, 2)
-            .map((t) => ({ x: t.clientX, y: t.clientY }));
-        }
-        function dist(a, b) {
-          const dx = a.x - b.x,
-            dy = a.y - b.y;
-          return Math.hypot(dx, dy);
-        }
-        function angle(a, b) {
-          return Math.atan2(b.y - a.y, b.x - a.x);
-        }
-
-        window.addEventListener(
-          "touchstart",
-          (e) => {
-            if (!mirrorGroup || !canTransform) return;
-            if (e.touches.length === 2) {
-              const [p1, p2] = getTouches(e);
-              prevDist = dist(p1, p2);
-              prevAngle = angle(p1, p2);
-              active = true;
-            }
-          },
-          { passive: true }
-        );
-
-        window.addEventListener(
-          "touchmove",
-          (e) => {
-            if (!active || !mirrorGroup || !canTransform) return;
-            if (e.touches.length === 2) {
-              const [p1, p2] = getTouches(e);
-              const d = dist(p1, p2);
-              const a = angle(p1, p2);
-              const scale = THREE.MathUtils.clamp(d / prevDist, 0.6, 1.6);
-              mirrorGroup.scale.multiplyScalar(scale);
-              // Обертання навколо нормалі (Y тут як приблизна вісь)
-              const deltaA = a - prevAngle;
-              mirrorGroup.rotateY(deltaA);
-              prevDist = d;
-              prevAngle = a;
-            }
-          },
-          { passive: true }
-        );
-
-        window.addEventListener(
-          "touchend",
-          () => {
-            active = false;
-          },
-          { passive: true }
-        );
-
-        resetBtn.onclick = () => {
-          if (!mirrorGroup) return;
-          mirrorGroup.scale.set(1, 1, 1);
-          if (anchor) {
-            try {
-              anchor.delete();
-            } catch {}
-            anchor = null;
-          }
-        };
-
-        lockBtn.onclick = () => {
-          canTransform = !canTransform;
-          lockBtn.textContent = canTransform ? "🔒 Блок" : "🔓 Редагувати";
-        };
-      }
-
-      // Кнопка входу
-      (async () => {
-        const ok = await supportsAR();
-        if (!ok) {
-          unsupported.classList.add("show");
-          enterBtn.style.display = "none";
-          return;
-        }
-        enterBtn.addEventListener("click", startAR);
-      })();
-
-      // Resize
-      window.addEventListener("resize", () => {
-        if (renderer) {
-          renderer.setSize(window.innerWidth, window.innerHeight);
-        }
       });
-    </script>
-    <video
-      id="cameraMirror"
-      autoplay
-      playsinline
-      muted
-      style="display: none; width: 100%; height: 100%; object-fit: cover"
-    ></video>
-    <button id="enterAR" class="btn">Запустити AR</button>
+    }
 
-    <script type="module">
-      async function supportsWebXR() {
-        if (!("xr" in navigator)) return false;
-        try {
-          return await navigator.xr.isSessionSupported("immersive-ar");
-        } catch {
-          return false;
-        }
-      }
-
-      // --- Запуск WebXR ---
-      async function startWebXR() {
-        alert("Тут працюватиме твій WebXR код для Android + Chrome");
-        // Твій попередній код з three.js
-      }
-
-      // --- Fallback: задня камера ---
-      async function startCameraFallback() {
-        const video = document.getElementById("cameraMirror");
-        video.style.display = "block";
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { exact: "environment" } },
-          });
-          video.srcObject = stream;
-        } catch (err) {
-          alert("Не вдалося відкрити камеру: " + err.message);
-        }
-      }
-
-      // --- iOS Quick Look (опціонально) ---
-      function openQuickLook() {
-        window.location.href = "mirror.usdz";
-        // Safari відкриє AR Quick Look, якщо файл існує
-      }
-
-      document.getElementById("enterAR").addEventListener("click", async () => {
-        if (await supportsWebXR()) {
-          startWebXR();
-        } else if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
-          // iOS Safari fallback
-          startCameraFallback();
-          // або: openQuickLook();
-        } else {
-          startCameraFallback(); // fallback для інших
-        }
+    try {
+      const session = await navigator.xr.requestSession("immersive-ar", {
+        requiredFeatures: ["local"],
       });
-    </script>
-  </body>
-</html>
+      renderer.xr.setSession(session);
+      animate();
+    } catch (e) {
+      alert("Не вдалося запустити AR: " + e.message);
+    }
+  }
+
+  // --- Відкрити Quick Look (iOS Safari) ---
+  function openQuickLook() {
+    const link = document.createElement("a");
+    link.setAttribute("rel", "ar");
+    link.setAttribute("href", "mirror.usdz");
+    link.click();
+  }
+
+  // --- Fallback: камера ---
+  async function startCameraFallback() {
+    const video = document.getElementById("mirror");
+    video.style.display = "block";
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+      video.srcObject = stream;
+    } catch (err) {
+      alert("Не вдалося відкрити камеру: " + err.message);
+    }
+  }
+
+  document.getElementById("enterAR").addEventListener("click", async () => {
+    if (await supportsWebXR()) {
+      startWebXR(); // Android Chrome
+    } else if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+      openQuickLook(); // iOS Safari
+    } else {
+      startCameraFallback(); // fallback
+    }
+  });
+</script>
