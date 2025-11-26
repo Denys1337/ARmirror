@@ -152,16 +152,33 @@
       // --- Scene Viewer для Android ---
       function openSceneViewer() {
         // Android очікує .glb/.gltf файл
+        // Використовуємо абсолютний URL для Scene Viewer
         const modelUrl = new URL("mirror.glb", window.location.href).toString();
+        
+        // Перевіряємо, чи це HTTPS (Scene Viewer потребує HTTPS)
+        if (window.location.protocol !== "https:" && window.location.hostname !== "localhost") {
+          alert("Для AR на Android потрібен HTTPS або localhost");
+          startCameraFallback();
+          return;
+        }
+
         const sceneViewerUrl =
           "https://arvr.google.com/scene-viewer/1.0?file=" +
           encodeURIComponent(modelUrl) +
           "&mode=ar-only";
 
-        const link = document.createElement("a");
-        link.setAttribute("rel", "ar");
-        link.setAttribute("href", sceneViewerUrl);
-        link.click();
+        // Пробуємо відкрити через intent:// для кращої сумісності
+        const intentUrl = `intent://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(modelUrl)}&mode=ar-only#Intent;scheme=https;package=com.google.ar.core;action=android.intent.action.VIEW;S.browser_fallback_url=${encodeURIComponent(sceneViewerUrl)};end;`;
+        
+        try {
+          window.location.href = intentUrl;
+        } catch (e) {
+          // Fallback на звичайний спосіб
+          const link = document.createElement("a");
+          link.setAttribute("rel", "ar");
+          link.setAttribute("href", sceneViewerUrl);
+          link.click();
+        }
       }
 
       // --- Fallback: відео задньої камери ---
@@ -187,8 +204,14 @@
             return;
           }
 
+          // Для Android спочатку пробуємо WebXR (якщо доступний)
+          if (isAndroid() && (await supportsWebXR())) {
+            startWebXR();
+            return;
+          }
+
+          // Якщо Android без WebXR, пробуємо Scene Viewer
           if (isAndroid()) {
-            // Android: Scene Viewer (.glb)
             openSceneViewer();
             return;
           }
@@ -203,7 +226,12 @@
           startCameraFallback();
         } catch (e) {
           console.error(e);
-          startCameraFallback();
+          // Якщо помилка з Scene Viewer, пробуємо WebXR або камеру
+          if (isAndroid() && (await supportsWebXR())) {
+            startWebXR();
+          } else {
+            startCameraFallback();
+          }
         }
       });
     </script>
