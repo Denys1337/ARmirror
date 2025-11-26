@@ -48,6 +48,14 @@
         }
       }
 
+      function isIOS() {
+        return /iPhone|iPad|iPod/.test(navigator.userAgent);
+      }
+
+      function isAndroid() {
+        return /Android/.test(navigator.userAgent);
+      }
+
       // --- WebXR AR для Android ---
       async function startWebXR() {
         const renderer = new THREE.WebGLRenderer({
@@ -134,9 +142,25 @@
 
       // --- Quick Look для iOS Safari ---
       function openQuickLook() {
+        // iOS очікує .usdz файл
         const link = document.createElement("a");
         link.setAttribute("rel", "ar");
         link.setAttribute("href", "mirror.usdz"); // твій .usdz файл
+        link.click();
+      }
+
+      // --- Scene Viewer для Android ---
+      function openSceneViewer() {
+        // Android очікує .glb/.gltf файл
+        const modelUrl = new URL("mirror.glb", window.location.href).toString();
+        const sceneViewerUrl =
+          "https://arvr.google.com/scene-viewer/1.0?file=" +
+          encodeURIComponent(modelUrl) +
+          "&mode=ar-only";
+
+        const link = document.createElement("a");
+        link.setAttribute("rel", "ar");
+        link.setAttribute("href", sceneViewerUrl);
         link.click();
       }
 
@@ -156,12 +180,30 @@
 
       // --- Клік по кнопці ---
       document.getElementById("enterAR").addEventListener("click", async () => {
-        if (await supportsWebXR()) {
-          startWebXR(); // Android Chrome
-        } else if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
-          openQuickLook(); // iOS Safari
-        } else {
-          startCameraFallback(); // fallback
+        try {
+          if (isIOS()) {
+            // iOS: Quick Look (.usdz)
+            openQuickLook();
+            return;
+          }
+
+          if (isAndroid()) {
+            // Android: Scene Viewer (.glb)
+            openSceneViewer();
+            return;
+          }
+
+          // Якщо не iOS/Android, але є WebXR — пробуємо WebXR
+          if (await supportsWebXR()) {
+            startWebXR();
+            return;
+          }
+
+          // Фолбек — просто задня камера як "дзеркало"
+          startCameraFallback();
+        } catch (e) {
+          console.error(e);
+          startCameraFallback();
         }
       });
     </script>
