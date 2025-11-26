@@ -155,22 +155,7 @@
         const arButton = ARButton.createButton(renderer, {
           requiredFeatures: ["hit-test"]
         });
-        
-        // Додаємо обробники подій для діагностики
-        arButton.addEventListener("click", () => {
-          console.log("AR button clicked");
-        });
-        
         document.body.appendChild(arButton);
-        
-        // Перевіряємо, чи AR сесія запустилась
-        renderer.xr.addEventListener("sessionstart", () => {
-          console.log("AR session started");
-        });
-        
-        renderer.xr.addEventListener("sessionend", () => {
-          console.log("AR session ended");
-        });
 
         let hitTestSource = null;
         let hitTestSourceRequested = false;
@@ -250,23 +235,13 @@
 
         // Розміщення дзеркала
         function placeMirror() {
-          if (!mirrorPlaced) {
+          if (reticle.visible && !mirrorPlaced) {
             mirror.visible = true;
-            
-            if (reticle.visible && reticle.matrix) {
-              // Використовуємо позицію з reticle
-              mirror.position.setFromMatrixPosition(reticle.matrix);
-              mirror.quaternion.setFromRotationMatrix(reticle.matrix);
-            } else {
-              // Fallback: розміщуємо дзеркало перед камерою
-              mirror.position.set(0, 0, -1);
-              mirror.rotation.set(0, 0, 0);
-            }
-            
+            mirror.position.setFromMatrixPosition(reticle.matrix);
+            mirror.quaternion.setFromRotationMatrix(reticle.matrix);
             mirrorPlaced = true;
             reticle.visible = false;
             if (infoDiv) infoDiv.style.display = "none";
-            console.log("Mirror placed at:", mirror.position);
           }
         }
 
