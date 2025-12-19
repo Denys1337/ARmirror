@@ -60,6 +60,7 @@
     <script type="module">
       import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js";
       import { ARButton } from "https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/webxr/ARButton.js";
+      import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/loaders/GLTFLoader.js";
 
       const $enter = document.getElementById("enterAR");
       const $hud = document.getElementById("hud");
@@ -130,32 +131,90 @@
         const camera = new THREE.PerspectiveCamera();
         scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
 
-        // Mirror (frame + plane)
-        const mirrorWidth = 0.6;
-        const mirrorHeight = 1.0;
-        const mirrorDepth = 0.02;
-
-        const frame = new THREE.Mesh(
-          new THREE.BoxGeometry(mirrorWidth + 0.05, mirrorHeight + 0.05, mirrorDepth),
-          new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.6, roughness: 0.25 })
-        );
-
-        const glass = new THREE.Mesh(
-          new THREE.PlaneGeometry(mirrorWidth, mirrorHeight),
-          new THREE.MeshStandardMaterial({
-            color: 0xcccccc,
-            metalness: 1.0,
-            roughness: 0.08,
-            side: THREE.DoubleSide,
-          })
-        );
-        glass.position.z = mirrorDepth / 2 + 0.001;
-
+        // Дзеркало: пробуємо завантажити `mirror.glb`.
+        // Якщо файлу нема/помилка — показуємо простий фолбек-обʼєкт.
         const mirror = new THREE.Group();
-        mirror.add(frame);
-        mirror.add(glass);
         mirror.visible = false;
         scene.add(mirror);
+
+        function buildFallbackMirror() {
+          mirror.clear();
+          const mirrorWidth = 0.6;
+          const mirrorHeight = 1.0;
+          const mirrorDepth = 0.02;
+
+          const frame = new THREE.Mesh(
+            new THREE.BoxGeometry(mirrorWidth + 0.05, mirrorHeight + 0.05, mirrorDepth),
+            new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.6, roughness: 0.25 })
+          );
+
+          const glass = new THREE.Mesh(
+            new THREE.PlaneGeometry(mirrorWidth, mirrorHeight),
+            new THREE.MeshStandardMaterial({
+              color: 0xcccccc,
+              metalness: 1.0,
+              roughness: 0.08,
+              side: THREE.DoubleSide,
+            })
+          );
+          glass.position.z = mirrorDepth / 2 + 0.001;
+          mirror.add(frame);
+          mirror.add(glass);
+        }
+
+        function normalizeForWallPlacement(root) {
+          // Масштабуємо до ~1м висоти, центруємо, і зсуваємо так,
+          // щоб “задня” сторона була біля z=0 (щоб при placement не “висіло” в повітрі).
+          const box = new THREE.Box3().setFromObject(root);
+          const size = new THREE.Vector3();
+          box.getSize(size);
+          if (!size.y || size.y < 1e-6) return;
+
+          const targetHeightM = 1.0;
+          const s = targetHeightM / size.y;
+          root.scale.setScalar(s);
+          root.updateMatrixWorld(true);
+
+          box.setFromObject(root);
+          const center = new THREE.Vector3();
+          box.getCenter(center);
+          root.position.sub(center);
+          root.updateMatrixWorld(true);
+
+          box.setFromObject(root);
+          // Зсуваємо по Z так, щоб найзадніша точка була в нулі
+          root.position.z -= box.min.z;
+          root.updateMatrixWorld(true);
+        }
+
+        // Підвантажуємо glb (якщо ти його додаси в корінь проєкту)
+        const gltfLoader = new GLTFLoader();
+        gltfLoader.load(
+          "mirror.glb",
+          (gltf) => {
+            mirror.clear();
+            const model = gltf.scene || gltf.scenes?.[0];
+            if (model) {
+              normalizeForWallPlacement(model);
+              mirror.add(model);
+              setHud(
+                "WebXR режим.\n- Наведіть центр екрана на стіну.\n- Дзеркало ‘липне’ до поверхні.\n- Тап: зафіксувати/відпустити.\n\n(Модель: mirror.glb завантажена)",
+                true
+              );
+            } else {
+              buildFallbackMirror();
+            }
+          },
+          undefined,
+          (err) => {
+            buildFallbackMirror();
+            setHud(
+              "WebXR режим.\n- Наведіть центр екрана на стіну.\n- Дзеркало ‘липне’ до поверхні.\n- Тап: зафіксувати/відпустити.\n\nНе вдалося завантажити mirror.glb — використовую фолбек-дзеркало.\n" +
+                String(err?.message || err),
+              true
+            );
+          }
+        );
 
         // Reticle (debug + aiming)
         const reticle = new THREE.Mesh(
@@ -277,7 +336,12 @@
         if (isIOS()) {
           setHud(
             "iOS Safari: WebXR hit-test зазвичай недоступний.\n" +
-              "Відкриваю Quick Look — там дзеркало ставиться тапом по поверхні.",
+              "Відкриваю Quick Look.\n\n" +
+              "Як поставити дзеркало НА СТІНУ у Quick Look:\n" +
+              "- спочатку ‘проскануйте’ кімнату (водіть телефоном)\n" +
+              "- тапніть по стіні (краще текстурованій, при хорошому світлі)\n" +
+              "- якщо поставило в центрі — спробуйте ще раз, ближче до стіни\n\n" +
+              "Важливо: Quick Look не дає вебу керувати ‘приклеюванням’ до стіни — це обмеження iOS Safari.",
             true
           );
           openQuickLook();
