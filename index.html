@@ -18,7 +18,9 @@
         font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       }
 
-      #enterAR {
+      /* Стилізуємо і кнопку, і AR-лінк однаково */
+      #enterAR,
+      #enterARLink {
         position: absolute;
         top: 16px;
         left: 50%;
@@ -26,6 +28,12 @@
         z-index: 10;
         padding: 12px 18px;
         font-size: 16px;
+        background: #fff;
+        color: #000;
+        border: 1px solid rgba(0, 0, 0, 0.2);
+        border-radius: 10px;
+        text-decoration: none;
+        -webkit-tap-highlight-color: transparent;
       }
 
       #hud {
@@ -53,9 +61,11 @@
     </style>
   </head>
   <body>
-    <button id="enterAR">Відкрити AR Дзеркало</button>
+    <!-- На iOS найнадійніше: користувач натискає реальний <a rel="ar"> (не через JS-клік) -->
+    <a id="enterARLink" rel="ar" href="mirror.usdz">Відкрити AR Дзеркало</a>
+    <button id="enterAR" style="display:none">Відкрити AR Дзеркало</button>
     <div id="hud"></div>
-    <!-- iOS Quick Look: краще мати реальний <a rel="ar"> в DOM -->
+    <!-- запасний quicklook link -->
     <a id="quicklookLink" rel="ar" href="mirror.usdz" style="display:none">AR</a>
     <video id="mirrorVideo" autoplay playsinline muted></video>
 
@@ -65,6 +75,7 @@
       import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/loaders/GLTFLoader.js";
 
       const $enter = document.getElementById("enterAR");
+      const $enterLink = document.getElementById("enterARLink");
       const $hud = document.getElementById("hud");
       const $video = document.getElementById("mirrorVideo");
       const $quickLook = document.getElementById("quicklookLink");
@@ -97,6 +108,44 @@
         // і Safari краще працює з реальною <a rel="ar"> в DOM.
         $quickLook.click();
       }
+
+      async function checkUsdzAccessible() {
+        try {
+          const res = await fetch("mirror.usdz", { method: "HEAD", cache: "no-store" });
+          return { ok: res.ok, status: res.status };
+        } catch (e) {
+          return { ok: false, status: 0, err: String(e?.message || e) };
+        }
+      }
+
+      // Визначаємо режим кнопки одразу при завантаженні:
+      // iOS — показуємо <a rel="ar">, інші — показуємо <button>.
+      (async function initEntryUI() {
+        if (isIOS()) {
+          $enter.style.display = "none";
+          $enterLink.style.display = "block";
+
+          const head = await checkUsdzAccessible();
+          if (!head.ok) {
+            setHud(
+              "iOS: не можу відкрити mirror.usdz (нема доступу або 404).\n" +
+                "Перевір, що файл є в деплої і відкривається напряму: /mirror.usdz\n" +
+                `HTTP: ${head.status}` +
+                (head.err ? `\n${head.err}` : ""),
+              true
+            );
+          } else {
+            setHud(
+              "iOS: натисни кнопку зверху — відкриється Quick Look.\n" +
+                "Якщо нічого не відбувається: перевір, чи відкриваєш саме Safari і чи файл /mirror.usdz відкривається напряму.",
+              true
+            );
+          }
+        } else {
+          $enterLink.style.display = "none";
+          $enter.style.display = "block";
+        }
+      })();
 
       async function startCameraFallback() {
         $enter.style.display = "none";
@@ -327,22 +376,6 @@
       }
 
       $enter.addEventListener("click", async () => {
-        // iOS: відкриваємо Quick Look СИНХРОННО (без await до цього),
-        // інакше Safari може заблокувати відкриття.
-        if (isIOS()) {
-          setHud(
-            "iOS Safari: відкриваю Quick Look.\n\n" +
-              "Як поставити дзеркало НА СТІНУ у Quick Look:\n" +
-              "- спочатку ‘проскануйте’ кімнату (водіть телефоном)\n" +
-              "- тапніть по стіні (краще текстурованій, при хорошому світлі)\n" +
-              "- якщо поставило в центрі — спробуйте ще раз, ближче до стіни\n\n" +
-              "Важливо: Quick Look не дає вебу керувати ‘приклеюванням’ до стіни — це обмеження iOS Safari.",
-            true
-          );
-          openQuickLook();
-          return;
-        }
-
         const webxr = await supportsWebXRImmersiveAR();
 
         if (webxr) {
