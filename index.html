@@ -55,6 +55,8 @@
   <body>
     <button id="enterAR">Відкрити AR Дзеркало</button>
     <div id="hud"></div>
+    <!-- iOS Quick Look: краще мати реальний <a rel="ar"> в DOM -->
+    <a id="quicklookLink" rel="ar" href="mirror.usdz" style="display:none">AR</a>
     <video id="mirrorVideo" autoplay playsinline muted></video>
 
     <script type="module">
@@ -65,6 +67,7 @@
       const $enter = document.getElementById("enterAR");
       const $hud = document.getElementById("hud");
       const $video = document.getElementById("mirrorVideo");
+      const $quickLook = document.getElementById("quicklookLink");
 
       function setHud(text, show = true) {
         $hud.textContent = text;
@@ -90,10 +93,9 @@
 
       // iOS Quick Look (USDZ). У Safari це єдиний стабільний WebAR без сторонніх SDK.
       function openQuickLook() {
-        const a = document.createElement("a");
-        a.setAttribute("rel", "ar");
-        a.setAttribute("href", "mirror.usdz");
-        a.click();
+        // ВАЖЛИВО: має викликатися синхронно з user gesture (без await перед цим),
+        // і Safari краще працює з реальною <a rel="ar"> в DOM.
+        $quickLook.click();
       }
 
       async function startCameraFallback() {
@@ -325,18 +327,11 @@
       }
 
       $enter.addEventListener("click", async () => {
-        const webxr = await supportsWebXRImmersiveAR();
-
-        // Важливо: iOS Safari зазвичай не дає WebXR hit-test → Quick Look.
-        if (webxr) {
-          await startWebXRStickyMirror();
-          return;
-        }
-
+        // iOS: відкриваємо Quick Look СИНХРОННО (без await до цього),
+        // інакше Safari може заблокувати відкриття.
         if (isIOS()) {
           setHud(
-            "iOS Safari: WebXR hit-test зазвичай недоступний.\n" +
-              "Відкриваю Quick Look.\n\n" +
+            "iOS Safari: відкриваю Quick Look.\n\n" +
               "Як поставити дзеркало НА СТІНУ у Quick Look:\n" +
               "- спочатку ‘проскануйте’ кімнату (водіть телефоном)\n" +
               "- тапніть по стіні (краще текстурованій, при хорошому світлі)\n" +
@@ -345,6 +340,13 @@
             true
           );
           openQuickLook();
+          return;
+        }
+
+        const webxr = await supportsWebXRImmersiveAR();
+
+        if (webxr) {
+          await startWebXRStickyMirror();
           return;
         }
 
