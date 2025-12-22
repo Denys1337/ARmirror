@@ -36,6 +36,16 @@
         -webkit-tap-highlight-color: transparent;
       }
 
+      /* Дефолт без JS-модулів: не показуємо iOS-лінк (щоб Android не скачував .usdz) */
+      #enterARLink {
+        display: none;
+      }
+
+      /* Дефолт: показуємо кнопку */
+      #enterAR {
+        display: block;
+      }
+
       #hud {
         position: absolute;
         left: 12px;
@@ -63,16 +73,81 @@
   <body>
     <!-- На iOS найнадійніше: користувач натискає реальний <a rel="ar"> (не через JS-клік) -->
     <a id="enterARLink" rel="ar" href="mirror.usdz">Відкрити AR Дзеркало</a>
-    <button id="enterAR" style="display:none">Відкрити AR Дзеркало</button>
+    <button id="enterAR">Відкрити AR Дзеркало</button>
     <div id="hud"></div>
     <!-- запасний quicklook link -->
     <a id="quicklookLink" rel="ar" href="mirror.usdz" style="display:none">AR</a>
     <video id="mirrorVideo" autoplay playsinline muted></video>
 
+    <!-- Мінімальний “немодульний” скрипт: вмикає правильний UI навіть якщо module-імпорти не стартують -->
+    <script>
+      (function () {
+        var enter = document.getElementById("enterAR");
+        var enterLink = document.getElementById("enterARLink");
+        var quickLook = document.getElementById("quicklookLink");
+        var hud = document.getElementById("hud");
+
+        function setHud(text, show) {
+          if (!hud) return;
+          hud.textContent = text;
+          hud.style.display = show ? "block" : "none";
+        }
+
+        var ua = navigator.userAgent || "";
+        var isiOS = /iPhone|iPad|iPod/i.test(ua);
+        // Quick Look параметри: просимо “стіна”, і дозволяємо користувачу підмасштабувати якщо конвертація дала неправильні unit-и
+        var quickLookHref = "mirror.usdz#initialPlacement=wall&allowsContentScaling=1";
+
+        if (enterLink) enterLink.href = quickLookHref;
+        if (quickLook) quickLook.href = quickLookHref;
+
+        if (isiOS) {
+          if (enter) enter.style.display = "none";
+          if (enterLink) enterLink.style.display = "block";
+        } else {
+          if (enterLink) enterLink.style.display = "none";
+          if (enter) enter.style.display = "block";
+          if (location && location.protocol === "file:") {
+            setHud(
+              "Відкрито локальний файл (file://).\n" +
+                "Для AR на Android потрібен HTTPS-сайт (і зазвичай Chrome + Google Play Services for AR).\n" +
+                "Задеплой на HTTPS і відкрий URL у Chrome.",
+              true
+            );
+          }
+        }
+
+        // Діагностика: якщо модульний скрипт (three/jsdelivr) не запустився, пояснюємо чому кнопка може “не працювати”.
+        // (Напр. корпоративні мережі/AdBlock можуть блокувати jsdelivr)
+        if (enter) {
+          enter.addEventListener(
+            "click",
+            function () {
+              if (!window.__arMirrorModuleLoaded) {
+                setHud(
+                  "Схоже, AR-движок не завантажився (модульний скрипт з three/jsdelivr).\n" +
+                    "Спробуй:\n" +
+                    "- вимкнути AdBlock/VPN\n" +
+                    "- інший інтернет\n" +
+                    "- перезавантажити сторінку\n\n" +
+                    "Також на Android потрібен Chrome + встановлений Google Play Services for AR (ARCore).",
+                  true
+                );
+              }
+            },
+            { passive: true }
+          );
+        }
+      })();
+    </script>
+
     <script type="module">
       import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js";
       import { ARButton } from "https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/webxr/ARButton.js";
       import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/loaders/GLTFLoader.js";
+
+      // прапорець для “немодульної” діагностики вище
+      window.__arMirrorModuleLoaded = true;
 
       const $enter = document.getElementById("enterAR");
       const $enterLink = document.getElementById("enterARLink");
@@ -124,6 +199,11 @@
         if (isIOS()) {
           $enter.style.display = "none";
           $enterLink.style.display = "block";
+          // Просимо Quick Look стартувати з “стіни”, щоб дзеркало не чіплялось за стелю/підлогу.
+          // Важливо: використовуємо fragment (#...) — Quick Look читає ці параметри з URL.
+          const quickLookHref = "mirror.usdz#initialPlacement=wall&allowsContentScaling=1";
+          $enterLink.setAttribute("href", quickLookHref);
+          $quickLook.setAttribute("href", quickLookHref);
 
           const head = await checkUsdzAccessible();
           if (!head.ok) {
@@ -137,7 +217,10 @@
           } else {
             setHud(
               "iOS: натисни кнопку зверху — відкриється Quick Look.\n" +
-                "Якщо нічого не відбувається: перевір, чи відкриваєш саме Safari і чи файл /mirror.usdz відкривається напряму.",
+                "Поради:\n" +
+                "- наведи камеру на стіну (не на стелю/підлогу)\n" +
+                "- pinch: зменш/збільш масштаб (якщо модель при конвертації стала завеликою)\n\n" +
+                "Якщо нічого не відбувається: відкрий у Safari і перевір, чи /mirror.usdz відкривається напряму.",
               true
             );
           }
@@ -376,6 +459,16 @@
       }
 
       $enter.addEventListener("click", async () => {
+        if (location.protocol === "file:") {
+          setHud(
+            "Відкрито локальний файл (file://).\n" +
+              "WebXR/AR зазвичай працює тільки на HTTPS.\n" +
+              "Задеплой на HTTPS і відкрий URL у Chrome (Android) / Safari (iOS).",
+            true
+          );
+          return;
+        }
+
         const webxr = await supportsWebXRImmersiveAR();
 
         if (webxr) {
